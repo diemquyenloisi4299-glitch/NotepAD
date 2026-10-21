@@ -19,10 +19,10 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Cài đặt Flutter SDK
+    - name: Cài đặt đúng phiên bản Flutter Flet yêu cầu
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.24.5'
+        flutter-version: '3.24.3'
         channel: 'stable'
 
     - name: Cài đặt Python 3.11
@@ -35,14 +35,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install flet
 
-    - name: Cấu hình Flutter không tương tác (Tránh treo)
-      run: |
-        flutter config --no-analytics
-        flutter doctor
-
     - name: Build APK
-      run: |
-        flet build apk --verbose
+      run: flet build apk
 
     - name: Tải file APK lên Artifacts
       uses: actions/upload-artifact@v4
