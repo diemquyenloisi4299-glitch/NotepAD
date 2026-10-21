@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -10,36 +10,40 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout mã nguồn
-      uses: actions/checkout@v4
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v4
 
-    - name: Cài đặt Java 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Cài đặt Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-    - name: Cài đặt Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Cài đặt Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Cài đặt Flet 0.28.3 (Bản ổn định tương thích 100% với code)
-      run: |
-        python -m pip install --upgrade pip
-        pip install "flet[all]==0.28.3"
+      - name: Cài đặt Flet CLI 1.0.4
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flet==1.0.4
+          flet --version
 
-    - name: Dọn dẹp file cấu hình thừa
-      run: |
-        rm -f requirements.txt
-        rm -f pyproject.toml
-        rm -f Pipfile
+      - name: Chuẩn bị dependency cho app Android
+        run: |
+          # Dùng requirements tối giản cho mã nguồn app này.
+          # Flet build cần một file dependency để cài các gói vào app Android.
+          rm -f pyproject.toml Pipfile
+          printf 'flet==1.0.4\n' > requirements.txt
 
-    - name: Build APK (Tự động xác nhận Y để không bị kẹt)
-      run: yes "y" | flet build apk
+      - name: Build APK
+        shell: bash
+        run: flet build apk < <(yes y)
 
-    - name: Tải file APK lên Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: Quick-Note-App-APK
-        path: build/apk/**/*.apk
+      - name: Tải file APK lên Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Quick-Note-App-APK
+          path: build/apk/**/*.apk
+          if-no-files-found: error
