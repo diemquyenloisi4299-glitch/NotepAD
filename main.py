@@ -143,10 +143,11 @@ def main(page: ft.Page):
                 on_change=update_content
             )
 
-            def copy_content(e, text=r_data["content"]):
-                if content_field.read_only and text:
-                    page.set_clipboard(str(text))
-                    page.snack_bar = ft.SnackBar(content=ft.Text(f"Đã copy: {text}"))
+            def copy_content(e):
+                current_text = content_field.value
+                if content_field.read_only and current_text:
+                    page.set_clipboard(str(current_text))
+                    page.snack_bar = ft.SnackBar(content=ft.Text(f"Đã copy: {current_text}"))
                     page.snack_bar.open = True
                     page.update()
             content_field.on_focus = copy_content
