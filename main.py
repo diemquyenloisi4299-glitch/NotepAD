@@ -1,10 +1,5 @@
 import flet as ft
 import traceback
-import json
-import os
-
-# Tên file lưu trữ dữ liệu an toàn trên điện thoại
-DATA_FILE = "note_data.json"
 
 def main(page: ft.Page):
     try:
@@ -12,25 +7,10 @@ def main(page: ft.Page):
         page.padding = 10
         
         # ==========================================
-        # 1. TẢI VÀ QUẢN LÝ DỮ LIỆU BẰNG JSON (An toàn cho Android)
+        # 1. TẢI VÀ QUẢN LÝ DỮ LIỆU BẰNG HỆ THỐNG NATIVE
         # ==========================================
-        def load_data():
-            if os.path.exists(DATA_FILE):
-                try:
-                    with open(DATA_FILE, "r", encoding="utf-8") as f:
-                        return json.load(f)
-                except:
-                    pass
-            return None
-
-        def save_data():
-            try:
-                with open(DATA_FILE, "w", encoding="utf-8") as f:
-                    json.dump(app_data, f, ensure_ascii=False, indent=4)
-            except Exception as e:
-                pass
-
-        app_data = load_data()
+        app_data = page.client_storage.get("quick_note_data")
+        
         if not app_data:
             app_data = {
                 "theme": "dark",
@@ -41,7 +21,9 @@ def main(page: ft.Page):
                     }
                 ]
             }
-            save_data()
+
+        def save_data():
+            page.client_storage.set("quick_note_data", app_data)
 
         page.theme_mode = ft.ThemeMode.DARK if app_data.get("theme") == "dark" else ft.ThemeMode.LIGHT
         is_delete_mode = False
@@ -71,11 +53,11 @@ def main(page: ft.Page):
             page.update()
 
         delete_page_dialog = ft.AlertDialog(
-            title=ft.Text("Xóa Trang", color=ft.colors.RED_400),
+            title=ft.Text("Xóa Trang", color=ft.Colors.RED_400),
             content=ft.Text("Xóa TOÀN BỘ trang này cùng các ghi chú bên trong?"),
             actions=[
                 ft.TextButton("Hủy", on_click=lambda e: (setattr(delete_page_dialog, 'open', False), page.update())),
-                ft.TextButton("Xóa", on_click=confirm_delete_page, style=ft.ButtonStyle(color=ft.colors.RED)),
+                ft.TextButton("Xóa", on_click=confirm_delete_page, style=ft.ButtonStyle(color=ft.Colors.RED)),
             ]
         )
 
@@ -95,7 +77,7 @@ def main(page: ft.Page):
             
             confirm_row_dialog.open = False
             is_delete_mode = False
-            delete_btn.icon = ft.icons.DELETE
+            delete_btn.icon = ft.Icons.DELETE
             delete_btn.icon_color = None
             save_data()
             render_rows()
@@ -105,7 +87,7 @@ def main(page: ft.Page):
             content=ft.Text("Bạn có chắc chắn muốn xóa các dòng đã chọn?"),
             actions=[
                 ft.TextButton("Hủy", on_click=lambda e: (setattr(confirm_row_dialog, 'open', False), page.update())),
-                ft.TextButton("Xóa", on_click=confirm_delete_row, style=ft.ButtonStyle(color=ft.colors.RED)),
+                ft.TextButton("Xóa", on_click=confirm_delete_row, style=ft.ButtonStyle(color=ft.Colors.RED)),
             ]
         )
 
@@ -164,7 +146,7 @@ def main(page: ft.Page):
             def copy_content(e, text=r_data["content"]):
                 if content_field.read_only and text:
                     page.set_clipboard(str(text))
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Đã copy: {text}"))
+                    page.snack_bar = ft.SnackBar(content=ft.Text(f"Đã copy: {text}"))
                     page.snack_bar.open = True
                     page.update()
             content_field.on_focus = copy_content
@@ -173,19 +155,19 @@ def main(page: ft.Page):
                 btn = e.control
                 if content_field.read_only:
                     content_field.read_only = False
-                    content_field.border_color = ft.colors.GREEN
-                    btn.icon = ft.icons.CHECK
+                    content_field.border_color = ft.Colors.GREEN
+                    btn.icon = ft.Icons.CHECK
                     btn.tooltip = "Lưu"
                     page.update()
                     content_field.focus()
                 else:
                     content_field.read_only = True
                     content_field.border_color = None
-                    btn.icon = ft.icons.EDIT
+                    btn.icon = ft.Icons.EDIT
                     btn.tooltip = "Sửa"
                     page.update()
                     
-            edit_btn = ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Sửa", on_click=toggle_edit)
+            edit_btn = ft.IconButton(icon=ft.Icons.EDIT, icon_size=16, tooltip="Sửa", on_click=toggle_edit)
 
             return ft.Row(
                 controls=[checkbox, label_field, content_field, edit_btn],
@@ -198,22 +180,22 @@ def main(page: ft.Page):
         def toggle_theme(e):
             if page.theme_mode == ft.ThemeMode.DARK:
                 page.theme_mode = ft.ThemeMode.LIGHT
-                theme_btn.icon = ft.icons.DARK_MODE
+                theme_btn.icon = ft.Icons.DARK_MODE
                 app_data["theme"] = "light"
             else:
                 page.theme_mode = ft.ThemeMode.DARK
-                theme_btn.icon = ft.icons.LIGHT_MODE
+                theme_btn.icon = ft.Icons.LIGHT_MODE
                 app_data["theme"] = "dark"
             save_data()
             page.update()
 
         theme_btn = ft.IconButton(
-            icon=ft.icons.LIGHT_MODE if page.theme_mode == ft.ThemeMode.DARK else ft.icons.DARK_MODE, 
+            icon=ft.Icons.LIGHT_MODE if page.theme_mode == ft.ThemeMode.DARK else ft.Icons.DARK_MODE, 
             on_click=toggle_theme, tooltip="Đổi Sáng/Tối"
         )
 
         search_bar = ft.TextField(
-            hint_text="Tìm nhanh...", prefix_icon=ft.icons.SEARCH, height=35, text_size=13, 
+            hint_text="Tìm nhanh...", prefix_icon=ft.Icons.SEARCH, height=35, text_size=13, 
             expand=True, content_padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
             border_radius=20, on_change=lambda e: render_rows()
         )
@@ -243,8 +225,8 @@ def main(page: ft.Page):
             nonlocal is_delete_mode
             if not is_delete_mode:
                 is_delete_mode = True
-                delete_btn.icon = ft.icons.CHECK_BOX
-                delete_btn.icon_color = ft.colors.RED_400
+                delete_btn.icon = ft.Icons.CHECK_BOX
+                delete_btn.icon_color = ft.Colors.RED_400
                 render_rows()
             else:
                 p_idx = tabs.selected_index or 0
@@ -256,17 +238,17 @@ def main(page: ft.Page):
                     page.update()
                 else:
                     is_delete_mode = False
-                    delete_btn.icon = ft.icons.DELETE
+                    delete_btn.icon = ft.Icons.DELETE
                     delete_btn.icon_color = None
                     render_rows()
 
-        add_page_btn = ft.IconButton(icon=ft.icons.LIBRARY_ADD, icon_color=ft.colors.GREEN_400, on_click=add_new_page, tooltip="Thêm Trang")
-        add_row_btn = ft.IconButton(icon=ft.icons.ADD_CIRCLE, icon_color=ft.colors.BLUE_400, on_click=add_row_to_current_page, tooltip="Thêm Dòng")
-        delete_btn = ft.IconButton(icon=ft.icons.DELETE, on_click=toggle_delete_mode, tooltip="Xóa Dòng")
+        add_page_btn = ft.IconButton(icon=ft.Icons.LIBRARY_ADD, icon_color=ft.Colors.GREEN_400, on_click=add_new_page, tooltip="Thêm Trang")
+        add_row_btn = ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.BLUE_400, on_click=add_row_to_current_page, tooltip="Thêm Dòng")
+        delete_btn = ft.IconButton(icon=ft.Icons.DELETE, on_click=toggle_delete_mode, tooltip="Xóa Dòng")
 
         def handle_tab_change(e):
             nonlocal is_delete_mode
-            delete_btn.icon = ft.icons.DELETE
+            delete_btn.icon = ft.Icons.DELETE
             delete_btn.icon_color = None
             is_delete_mode = False
             render_rows()
@@ -285,7 +267,7 @@ def main(page: ft.Page):
         
         page.add(
             header_row,
-            ft.Divider(height=1, color=ft.colors.WHITE24),
+            ft.Divider(height=1, color=ft.Colors.WHITE24),
             tabs
         )
 
@@ -299,10 +281,4 @@ def main(page: ft.Page):
         page.update()
 
 if __name__ == "__main__":
-    try:
-        # Nếu chạy trên máy tính, nó sẽ gọi lệnh này bình thường
-        ft.app(main)
-    except AttributeError:
-        # Nếu chạy trên Android (Flet 1.0.4 không có thuộc tính 'app'), nó sẽ bỏ qua 
-        # vì Android đã tự động gọi hàm main() ngầm ở dưới rồi.
-        pass
+    ft.app(target=main)
