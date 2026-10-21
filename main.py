@@ -1,184 +1,313 @@
 import flet as ft
 import traceback
+import json
 
-def main(page: ft.Page):
+
+STORAGE_KEY = "quick_note_data"
+
+
+def make_default_data():
+    return {
+        "theme": "dark",
+        "pages": [
+            {
+                "title": "Trang 1",
+                "rows": [
+                    {"label": f"Note {i + 1}", "content": f"Nội dung {i + 1}"}
+                    for i in range(10)
+                ],
+            }
+        ],
+    }
+
+
+async def main(page: ft.Page):
     try:
         page.title = "Quick Copy & Note App"
-        page.padding = 10
-        
-        # ==========================================
-        # 1. TẢI VÀ QUẢN LÝ DỮ LIỆU BẰNG HỆ THỐNG NATIVE
-        # ==========================================
-        app_data = page.client_storage.get("quick_note_data")
-        
-        if not app_data:
-            app_data = {
-                "theme": "dark",
-                "pages": [
-                    {
-                        "title": "Trang 1",
-                        "rows": [{"label": f"Note {i+1}", "content": f"Nội dung {i+1}"} for i in range(10)]
-                    }
-                ]
-            }
+        # Chỉ tăng khoảng trống phía trên; giữ nguyên giao diện gốc, không thêm logo/tiêu đề mới.
+        page.padding = ft.Padding.only(left=10, top=40, right=10, bottom=10)
 
-        def save_data():
-            page.client_storage.set("quick_note_data", app_data)
+        # Flet 1.x sử dụng service bất đồng bộ thay cho page.client_storage
+        prefs = ft.SharedPreferences()
+        clipboard = ft.Clipboard()
 
-        page.theme_mode = ft.ThemeMode.DARK if app_data.get("theme") == "dark" else ft.ThemeMode.LIGHT
+        stored_value = await prefs.get(STORAGE_KEY)
+        try:
+            if isinstance(stored_value, str):
+                app_data = json.loads(stored_value) if stored_value else None
+            elif isinstance(stored_value, dict):
+                # Tương thích nếu dữ liệu cũ đã được lưu ở dạng dict.
+                app_data = stored_value
+            else:
+                app_data = None
+        except (TypeError, json.JSONDecodeError):
+            app_data = None
+
+        if (
+            not isinstance(app_data, dict)
+            or not isinstance(app_data.get("pages"), list)
+            or len(app_data.get("pages", [])) == 0
+        ):
+            app_data = make_default_data()
+
+        async def save_data():
+            # SharedPreferences hỗ trợ string/list/number/bool, vì vậy lưu dict thành JSON.
+            await prefs.set(
+                STORAGE_KEY,
+                json.dumps(app_data, ensure_ascii=False),
+            )
+
+        page.theme_mode = (
+            ft.ThemeMode.DARK
+            if app_data.get("theme", "dark") == "dark"
+            else ft.ThemeMode.LIGHT
+        )
         is_delete_mode = False
+        page_to_delete_idx = -1
 
         # ==========================================
-        # 2. CÁC HỘP THOẠI XÁC NHẬN
+        # 1. CẤU TRÚC TABS MỚI CỦA FLET 1.x
         # ==========================================
-        page_to_delete_idx = -1
+        page_columns = []
+        tab_bar = ft.TabBar(tabs=[ft.Tab(label="Trang 1")], scrollable=True)
+        tab_bar_view = ft.TabBarView(
+            controls=[ft.Container(content=ft.Column())], expand=True
+        )
+        tabs = ft.Tabs(
+            length=1,
+            selected_index=0,
+            animation_duration=300,
+            expand=True,
+            content=ft.Column(
+                controls=[tab_bar, tab_bar_view],
+                expand=True,
+                spacing=0,
+            ),
+        )
+
+        # Thanh công cụ và các callback được tạo trước khi render trang.
+        search_bar = ft.TextField(
+            hint_text="Tìm nhanh...",
+            prefix_icon=ft.Icons.SEARCH,
+            height=35,
+            text_size=13,
+            expand=True,
+            border=ft.OutlineInputBorder(border_radius=20),
+            on_change=lambda e: render_rows(),
+        )
+
         def open_delete_page_dialog(idx):
             nonlocal page_to_delete_idx
             page_to_delete_idx = idx
-            page.dialog = delete_page_dialog
-            delete_page_dialog.open = True
-            page.update()
+            page.show_dialog(delete_page_dialog)
 
-        def confirm_delete_page(e):
+        def cancel_delete_page(e):
+            page.pop_dialog()
+
+        async def confirm_delete_page(e):
             if 0 <= page_to_delete_idx < len(app_data["pages"]):
-                app_data["pages"].pop(page_to_delete_idx)
-                for i, p in enumerate(app_data["pages"]):
-                    p["title"] = f"Trang {i+1}"
-                save_data()
-                render_all_pages()
-                
-                if tabs.selected_index >= len(app_data["pages"]):
-                    tabs.selected_index = max(0, len(app_data["pages"]) - 1)
-            delete_page_dialog.open = False
-            page.update()
+                deleted_index = page_to_delete_idx
+                app_data["pages"].pop(deleted_index)
+
+                # Luôn giữ ít nhất một trang để Tabs không ở trạng thái rỗng.
+                if not app_data["pages"]:
+                    app_data["pages"].append({"title": "Trang 1", "rows": []})
+
+                for i, page_data in enumerate(app_data["pages"]):
+                    page_data["title"] = f"Trang {i + 1}"
+
+                await save_data()
+                page.pop_dialog()
+                new_selected_index = min(deleted_index, len(app_data["pages"]) - 1)
+                render_all_pages(selected_index=new_selected_index)
+            else:
+                page.pop_dialog()
 
         delete_page_dialog = ft.AlertDialog(
             title=ft.Text("Xóa Trang", color=ft.Colors.RED_400),
             content=ft.Text("Xóa TOÀN BỘ trang này cùng các ghi chú bên trong?"),
             actions=[
-                ft.TextButton("Hủy", on_click=lambda e: (setattr(delete_page_dialog, 'open', False), page.update())),
-                ft.TextButton("Xóa", on_click=confirm_delete_page, style=ft.ButtonStyle(color=ft.Colors.RED)),
-            ]
+                ft.TextButton("Hủy", on_click=cancel_delete_page),
+                ft.TextButton(
+                    "Xóa",
+                    on_click=confirm_delete_page,
+                    style=ft.ButtonStyle(color=ft.Colors.RED),
+                ),
+            ],
         )
 
-        def confirm_delete_row(e):
+        def cancel_delete_row(e):
+            page.pop_dialog()
+
+        async def confirm_delete_row(e):
             nonlocal is_delete_mode
-            p_idx = tabs.selected_index or 0
-            lv = tabs.tabs[p_idx].content.content
-            
+            p_idx = tabs.selected_index
+            if not (0 <= p_idx < len(page_columns)):
+                page.pop_dialog()
+                return
+
+            lv = page_columns[p_idx]
             to_delete = []
-            for ctrl in lv.controls:
-                cb = ctrl.controls[0]
-                if isinstance(cb, ft.Checkbox) and cb.value:
-                    to_delete.append(cb.data)
-            
-            for r_idx in sorted(to_delete, reverse=True):
-                app_data["pages"][p_idx]["rows"].pop(r_idx)
-            
-            confirm_row_dialog.open = False
+            for row_control in lv.controls:
+                if row_control.controls and isinstance(row_control.controls[0], ft.Checkbox):
+                    checkbox = row_control.controls[0]
+                    if checkbox.value:
+                        to_delete.append(checkbox.data)
+
+            for row_idx in sorted(to_delete, reverse=True):
+                if 0 <= row_idx < len(app_data["pages"][p_idx]["rows"]):
+                    app_data["pages"][p_idx]["rows"].pop(row_idx)
+
+            page.pop_dialog()
             is_delete_mode = False
             delete_btn.icon = ft.Icons.DELETE
             delete_btn.icon_color = None
-            save_data()
+            await save_data()
             render_rows()
 
         confirm_row_dialog = ft.AlertDialog(
             title=ft.Text("Xóa Ghi Chú"),
             content=ft.Text("Bạn có chắc chắn muốn xóa các dòng đã chọn?"),
             actions=[
-                ft.TextButton("Hủy", on_click=lambda e: (setattr(confirm_row_dialog, 'open', False), page.update())),
-                ft.TextButton("Xóa", on_click=confirm_delete_row, style=ft.ButtonStyle(color=ft.Colors.RED)),
-            ]
+                ft.TextButton("Hủy", on_click=cancel_delete_row),
+                ft.TextButton(
+                    "Xóa",
+                    on_click=confirm_delete_row,
+                    style=ft.ButtonStyle(color=ft.Colors.RED),
+                ),
+            ],
         )
 
         # ==========================================
-        # 3. RENDER GIAO DIỆN (UI) TỪ DATA
+        # 2. RENDER GIAO DIỆN TỪ DATA
         # ==========================================
-        tabs = ft.Tabs(animation_duration=300, expand=True, scrollable=True)
+        def render_all_pages(selected_index=None):
+            current_index = (
+                tabs.selected_index if selected_index is None else selected_index
+            )
 
-        def render_all_pages():
-            tabs.tabs.clear()
-            for p_idx, p_data in enumerate(app_data["pages"]):
+            page_columns.clear()
+            tab_bar.tabs.clear()
+            tab_bar_view.controls.clear()
+
+            if not app_data["pages"]:
+                app_data["pages"].append({"title": "Trang 1", "rows": []})
+
+            for p_idx, page_data in enumerate(app_data["pages"]):
                 lv = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
+                page_columns.append(lv)
+
                 tab_header = ft.Container(
-                    content=ft.Text(p_data["title"]),
+                    content=ft.Text(page_data.get("title", f"Trang {p_idx + 1}")),
                     on_long_press=lambda e, idx=p_idx: open_delete_page_dialog(idx),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
-                    tooltip="Nhấn giữ để xóa trang"
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+                    tooltip="Nhấn giữ để xóa trang",
                 )
-                new_tab = ft.Tab(tab_content=tab_header, content=ft.Container(content=lv, padding=ft.padding.only(top=15)))
-                tabs.tabs.append(new_tab)
+                tab_bar.tabs.append(ft.Tab(label=tab_header))
+                tab_bar_view.controls.append(
+                    ft.Container(
+                        content=lv,
+                        padding=ft.Padding.only(top=15),
+                    )
+                )
+
+            # Flet 1.x yêu cầu length bằng số tab và số view.
+            tabs.length = len(tab_bar.tabs)
+            tabs.selected_index = max(0, min(current_index, tabs.length - 1))
             render_rows()
 
         def render_rows():
-            query = search_bar.value.lower() if search_bar.value else ""
-            for p_idx, p_data in enumerate(app_data["pages"]):
-                if p_idx >= len(tabs.tabs): break
-                lv = tabs.tabs[p_idx].content.content
+            query = (search_bar.value or "").lower()
+            for p_idx, page_data in enumerate(app_data["pages"]):
+                if p_idx >= len(page_columns):
+                    break
+                lv = page_columns[p_idx]
                 lv.controls.clear()
-                
-                for r_idx, r_data in enumerate(p_data["rows"]):
-                    if query and query not in r_data["label"].lower() and query not in r_data["content"].lower():
-                        continue
-                    lv.controls.append(create_row_ui(p_idx, r_idx, r_data))
-            page.update()
 
-        def create_row_ui(p_idx, r_idx, r_data):
-            checkbox = ft.Checkbox(visible=is_delete_mode, value=False, data=r_idx)
-            
-            def update_label(e, p=p_idx, r=r_idx):
+                for row_idx, row_data in enumerate(page_data["rows"]):
+                    label = str(row_data.get("label", ""))
+                    content = str(row_data.get("content", ""))
+                    if query and query not in label.lower() and query not in content.lower():
+                        continue
+                    lv.controls.append(create_row_ui(p_idx, row_idx, row_data))
+
+        def create_row_ui(p_idx, row_idx, row_data):
+            checkbox = ft.Checkbox(visible=is_delete_mode, value=False, data=row_idx)
+
+            async def update_label(e, p=p_idx, r=row_idx):
                 app_data["pages"][p]["rows"][r]["label"] = e.control.value
-                save_data()
-                
-            def update_content(e, p=p_idx, r=r_idx):
+                await save_data()
+
+            async def update_content(e, p=p_idx, r=row_idx):
                 app_data["pages"][p]["rows"][r]["content"] = e.control.value
-                save_data()
+                await save_data()
 
             label_field = ft.TextField(
-                value=r_data["label"], text_size=12, dense=True, width=80, border_radius=8,
-                on_change=update_label
+                value=row_data.get("label", ""),
+                text_size=12,
+                width=80,
+                border=ft.OutlineInputBorder(border_radius=8),
+                on_change=update_label,
             )
             content_field = ft.TextField(
-                value=r_data["content"], text_size=13, dense=True, expand=True, border_radius=8, read_only=True,
-                on_change=update_content
+                value=row_data.get("content", ""),
+                text_size=13,
+                expand=True,
+                read_only=True,
+                border=ft.OutlineInputBorder(border_radius=8),
+                on_change=update_content,
             )
 
-            def copy_content(e):
-                current_text = content_field.value
+            async def copy_content(e):
+                current_text = content_field.value or ""
                 if content_field.read_only and current_text:
-                    page.set_clipboard(str(current_text))
-                    page.snack_bar = ft.SnackBar(content=ft.Text(f"Đã copy: {current_text}"))
-                    page.snack_bar.open = True
-                    page.update()
+                    await clipboard.set(str(current_text))
+                    page.show_dialog(
+                        ft.SnackBar(content=ft.Text(f"Đã copy: {current_text}"))
+                    )
+
             content_field.on_focus = copy_content
 
-            def toggle_edit(e):
+            async def toggle_edit(e):
                 btn = e.control
                 if content_field.read_only:
                     content_field.read_only = False
-                    content_field.border_color = ft.Colors.GREEN
+                    content_field.border = ft.OutlineInputBorder(
+                        border_radius=8,
+                        side=ft.BorderSide(color=ft.Colors.GREEN),
+                    )
                     btn.icon = ft.Icons.CHECK
                     btn.tooltip = "Lưu"
                     page.update()
-                    content_field.focus()
+                    await content_field.focus()
                 else:
+                    app_data["pages"][p_idx]["rows"][row_idx]["content"] = (
+                        content_field.value or ""
+                    )
+                    await save_data()
                     content_field.read_only = True
-                    content_field.border_color = None
+                    content_field.border = ft.OutlineInputBorder(border_radius=8)
                     btn.icon = ft.Icons.EDIT
                     btn.tooltip = "Sửa"
                     page.update()
-                    
-            edit_btn = ft.IconButton(icon=ft.Icons.EDIT, icon_size=16, tooltip="Sửa", on_click=toggle_edit)
+
+            edit_btn = ft.IconButton(
+                icon=ft.Icons.EDIT,
+                icon_size=16,
+                tooltip="Sửa",
+                on_click=toggle_edit,
+            )
 
             return ft.Row(
                 controls=[checkbox, label_field, content_field, edit_btn],
-                alignment=ft.MainAxisAlignment.CENTER, spacing=4
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=4,
             )
 
         # ==========================================
-        # 4. THANH CÔNG CỤ
+        # 3. THANH CÔNG CỤ
         # ==========================================
-        def toggle_theme(e):
+        async def toggle_theme(e):
             if page.theme_mode == ft.ThemeMode.DARK:
                 page.theme_mode = ft.ThemeMode.LIGHT
                 theme_btn.icon = ft.Icons.DARK_MODE
@@ -187,39 +316,41 @@ def main(page: ft.Page):
                 page.theme_mode = ft.ThemeMode.DARK
                 theme_btn.icon = ft.Icons.LIGHT_MODE
                 app_data["theme"] = "dark"
-            save_data()
+            await save_data()
             page.update()
 
         theme_btn = ft.IconButton(
-            icon=ft.Icons.LIGHT_MODE if page.theme_mode == ft.ThemeMode.DARK else ft.Icons.DARK_MODE, 
-            on_click=toggle_theme, tooltip="Đổi Sáng/Tối"
+            icon=(
+                ft.Icons.LIGHT_MODE
+                if page.theme_mode == ft.ThemeMode.DARK
+                else ft.Icons.DARK_MODE
+            ),
+            on_click=toggle_theme,
+            tooltip="Đổi Sáng/Tối",
         )
 
-        search_bar = ft.TextField(
-            hint_text="Tìm nhanh...", prefix_icon=ft.Icons.SEARCH, height=35, text_size=13, 
-            expand=True, content_padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
-            border_radius=20, on_change=lambda e: render_rows()
-        )
-
-        def add_new_page(e):
+        async def add_new_page(e):
             new_idx = len(app_data["pages"]) + 1
-            app_data["pages"].append({
-                "title": f"Trang {new_idx}",
-                "rows": [{"label": f"Note {i+1}", "content": f"Nội dung {i+1}"} for i in range(5)]
-            })
-            save_data()
-            render_all_pages()
-            tabs.selected_index = len(app_data["pages"]) - 1
-            page.update()
+            app_data["pages"].append(
+                {
+                    "title": f"Trang {new_idx}",
+                    "rows": [
+                        {"label": f"Note {i + 1}", "content": f"Nội dung {i + 1}"}
+                        for i in range(5)
+                    ],
+                }
+            )
+            await save_data()
+            render_all_pages(selected_index=len(app_data["pages"]) - 1)
 
-        def add_row_to_current_page(e):
-            p_idx = tabs.selected_index or 0
-            if p_idx < len(app_data["pages"]):
+        async def add_row_to_current_page(e):
+            p_idx = tabs.selected_index
+            if 0 <= p_idx < len(app_data["pages"]):
                 new_row_idx = len(app_data["pages"][p_idx]["rows"]) + 1
-                app_data["pages"][p_idx]["rows"].append({
-                    "label": f"Note {new_row_idx}", "content": "Nội dung mới"
-                })
-                save_data()
+                app_data["pages"][p_idx]["rows"].append(
+                    {"label": f"Note {new_row_idx}", "content": "Nội dung mới"}
+                )
+                await save_data()
                 render_rows()
 
         def toggle_delete_mode(e):
@@ -230,22 +361,41 @@ def main(page: ft.Page):
                 delete_btn.icon_color = ft.Colors.RED_400
                 render_rows()
             else:
-                p_idx = tabs.selected_index or 0
-                lv = tabs.tabs[p_idx].content.content
-                checked = any(ctrl.controls[0].value for ctrl in lv.controls if isinstance(ctrl.controls[0], ft.Checkbox))
+                p_idx = tabs.selected_index
+                if not (0 <= p_idx < len(page_columns)):
+                    return
+                lv = page_columns[p_idx]
+                checked = any(
+                    row_control.controls
+                    and isinstance(row_control.controls[0], ft.Checkbox)
+                    and row_control.controls[0].value
+                    for row_control in lv.controls
+                )
                 if checked:
-                    page.dialog = confirm_row_dialog
-                    confirm_row_dialog.open = True
-                    page.update()
+                    page.show_dialog(confirm_row_dialog)
                 else:
                     is_delete_mode = False
                     delete_btn.icon = ft.Icons.DELETE
                     delete_btn.icon_color = None
                     render_rows()
 
-        add_page_btn = ft.IconButton(icon=ft.Icons.LIBRARY_ADD, icon_color=ft.Colors.GREEN_400, on_click=add_new_page, tooltip="Thêm Trang")
-        add_row_btn = ft.IconButton(icon=ft.Icons.ADD_CIRCLE, icon_color=ft.Colors.BLUE_400, on_click=add_row_to_current_page, tooltip="Thêm Dòng")
-        delete_btn = ft.IconButton(icon=ft.Icons.DELETE, on_click=toggle_delete_mode, tooltip="Xóa Dòng")
+        add_page_btn = ft.IconButton(
+            icon=ft.Icons.LIBRARY_ADD,
+            icon_color=ft.Colors.GREEN_400,
+            on_click=add_new_page,
+            tooltip="Thêm Trang",
+        )
+        add_row_btn = ft.IconButton(
+            icon=ft.Icons.ADD_CIRCLE,
+            icon_color=ft.Colors.BLUE_400,
+            on_click=add_row_to_current_page,
+            tooltip="Thêm Dòng",
+        )
+        delete_btn = ft.IconButton(
+            icon=ft.Icons.DELETE,
+            on_click=toggle_delete_mode,
+            tooltip="Xóa Dòng",
+        )
 
         def handle_tab_change(e):
             nonlocal is_delete_mode
@@ -256,30 +406,40 @@ def main(page: ft.Page):
 
         tabs.on_change = handle_tab_change
 
-        header_row = ft.Row([
-            search_bar,
-            ft.Row([add_page_btn, add_row_btn, delete_btn, theme_btn], spacing=0)
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        # ==========================================
-        # 5. HIỂN THỊ LÊN MÀN HÌNH
-        # ==========================================
-        render_all_pages()
-        
-        page.add(
-            header_row,
-            ft.Divider(height=1, color=ft.Colors.WHITE24),
-            tabs
+        header_row = ft.Row(
+            controls=[
+                search_bar,
+                ft.Row(
+                    controls=[add_page_btn, add_row_btn, delete_btn, theme_btn],
+                    spacing=0,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
 
-    # KHỐI BẮT LỖI TỰ ĐỘNG
-    except Exception as e:
+        # ==========================================
+        # 4. HIỂN THỊ LÊN MÀN HÌNH
+        # ==========================================
+        render_all_pages()
+        page.add(
+            header_row,
+            ft.Divider(height=1, color=ft.Colors.WHITE_24),
+            tabs,
+        )
+
+    except Exception:
         page.scroll = ft.ScrollMode.AUTO
         page.add(
-            ft.Text("⚠️ CÓ LỖI XẢY RA, HÃY CHỤP MÀN HÌNH NÀY:", color="red", weight="bold"),
-            ft.Text(traceback.format_exc(), selectable=True, size=12)
+            ft.Text(
+                "⚠️ CÓ LỖI XẢY RA, HÃY CHỤP MÀN HÌNH NÀY:",
+                color="red",
+                weight="bold",
+            ),
+            ft.Text(traceback.format_exc(), selectable=True, size=12),
         )
         page.update()
 
+
 if __name__ == "__main__":
-    ft.app(target=main)
+    # Flet 1.x: ft.app() đã được thay bằng ft.run().
+    ft.run(main)
