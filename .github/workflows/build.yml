@@ -24,12 +24,12 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Cài đặt Flet CLI 1.0.4
+    - name: Cài đặt Flet 0.28.3 (Bản ổn định tương thích 100% với code)
       run: |
         python -m pip install --upgrade pip
-        pip install flet==1.0.4
+        pip install "flet[all]==0.28.3"
 
-    - name: Dọn dẹp file gây lỗi văng App trên điện thoại
+    - name: Dọn dẹp file cấu hình thừa
       run: |
         rm -f requirements.txt
         rm -f pyproject.toml
