@@ -299,4 +299,10 @@ def main(page: ft.Page):
         page.update()
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    try:
+        # Nếu chạy trên máy tính, nó sẽ gọi lệnh này bình thường
+        ft.app(main)
+    except AttributeError:
+        # Nếu chạy trên Android (Flet 1.0.4 không có thuộc tính 'app'), nó sẽ bỏ qua 
+        # vì Android đã tự động gọi hàm main() ngầm ở dưới rồi.
+        pass
