@@ -20,7 +20,6 @@ def make_default_data():
         ],
     }
 
-
 async def main(page: ft.Page):
     try:
         page.title = "Quick Copy & Note App"
